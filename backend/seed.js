@@ -1,32 +1,37 @@
-const sqlite3 = require('sqlite3').verbose();
+const db = require('./src/db');
 const bcrypt = require('bcrypt');
-const fs = require('fs');
-const path = require('path');
+const dotenv = require('dotenv');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'database.sqlite');
+dotenv.config();
 
-async function seed(){
-  const dir = path.dirname(DB_PATH);
-  if(!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+const ADMIN_USERID = process.env.SEED_ADMIN_USERID || 'admin';
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
 
-  const db = new sqlite3.Database(DB_PATH);
-  db.serialize(async ()=>{
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      userid TEXT UNIQUE NOT NULL,
-      name TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      is_admin INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );`);
+async function seed() {
+    if (!ADMIN_PASSWORD) {
+        console.error('SEED_ADMIN_PASSWORD is not set. Aborting seed.');
+        process.exitCode = 1;
+        return;
+    }
 
-    const pw = await bcrypt.hash('password', 10);
-    db.run('INSERT OR IGNORE INTO users (userid, name, password_hash, is_admin) VALUES (?, ?, ?, ?)', ['admin', 'Admin User', pw, 1], function(err){
-      if(err) console.error(err);
-      else console.log('Seeded admin user (userid: admin, password: password)');
-      db.close();
-    });
-  });
+    await db.init();
+
+    const pw = await bcrypt.hash(ADMIN_PASSWORD, 10);
+
+    try {
+        await db.run(
+            'INSERT OR IGNORE INTO users (userid, name, password_hash, is_admin) VALUES (?, ?, ?, ?)',
+            [ADMIN_USERID, 'Admin User', pw, 1]
+        );
+        console.log('Seeded admin user:', ADMIN_USERID);
+    } catch (err) {
+        console.error('Failed to seed admin user', err);
+    } finally {
+        db.close();
+    }
 }
 
-seed().catch(console.error);
+seed().catch((err) => {
+    console.error(err);
+    process.exit(1);
+});

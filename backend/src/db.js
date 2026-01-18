@@ -2,43 +2,63 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'database.sqlite');
+const DB_PATH =
+    process.env.DB_PATH ||
+    path.join(__dirname, '..', 'data', 'database.sqlite');
 
-function run(db, sql, params = []){
-  return new Promise((resolve, reject)=>{
-    db.run(sql, params, function(err){
-      if(err) return reject(err);
-      resolve(this);
-    });
-  });
+let dbInstance = null;
+
+function ensureDir() {
+    const dir = path.dirname(DB_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-function get(db, sql, params = []){
-  return new Promise((resolve, reject)=>{
-    db.get(sql, params, (err, row)=>{
-      if(err) return reject(err);
-      resolve(row);
+function open() {
+    if (dbInstance) return dbInstance;
+    ensureDir();
+    dbInstance = new sqlite3.Database(DB_PATH, (err) => {
+        if (err) {
+            console.error('Failed to open database', err);
+            // allow error to propagate where called
+        }
     });
-  });
+    return dbInstance;
 }
 
-function all(db, sql, params = []){
-  return new Promise((resolve, reject)=>{
-    db.all(sql, params, (err, rows)=>{
-      if(err) return reject(err);
-      resolve(rows);
+function run(sql, params = []) {
+    const db = open();
+    return new Promise((resolve, reject) => {
+        db.run(sql, params, function (err) {
+            if (err) return reject(err);
+            resolve(this);
+        });
     });
-  });
 }
 
-async function init(){
-  const dir = path.dirname(DB_PATH);
-  if(!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+function get(sql, params = []) {
+    const db = open();
+    return new Promise((resolve, reject) => {
+        db.get(sql, params, (err, row) => {
+            if (err) return reject(err);
+            resolve(row);
+        });
+    });
+}
 
-  const db = new sqlite3.Database(DB_PATH);
+function all(sql, params = []) {
+    const db = open();
+    return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => {
+            if (err) return reject(err);
+            resolve(rows);
+        });
+    });
+}
 
-  // Create tables if not exist
-  await run(db, `CREATE TABLE IF NOT EXISTS users (
+async function init() {
+    ensureDir();
+    // create tables if not exist
+    await run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userid TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
@@ -47,7 +67,7 @@ async function init(){
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );`);
 
-  await run(db, `CREATE TABLE IF NOT EXISTS tasks (
+    await run(`CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
     description TEXT,
@@ -66,19 +86,25 @@ async function init(){
     updated_at TEXT
   );`);
 
-  await run(db, `CREATE TABLE IF NOT EXISTS task_dependencies (
+    await run(`CREATE TABLE IF NOT EXISTS task_dependencies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
     depends_on_task_id INTEGER NOT NULL
   );`);
+}
 
-  db.close();
+function close() {
+    if (!dbInstance) return;
+    dbInstance.close();
+    dbInstance = null;
 }
 
 module.exports = {
-  init,
-  run,
-  get,
-  all,
-  DB_PATH,
+    open,
+    run,
+    get,
+    all,
+    init,
+    close,
+    DB_PATH,
 };
